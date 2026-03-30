@@ -2,6 +2,7 @@ from rich.console import Console
 import diskcache
 
 from .api_models.gemini import GeminiModel
+from .api_models.kimi import KimiModel
 from .api_models.ollama import OllamaModel
 from .api_models.chatgpt import ChatGptModel
 from .hf_models.hf_client import HFGradioClientModel
@@ -19,6 +20,8 @@ class LLMModels:
         ollama_vision_model_name: str = None,
         chatgpt_model_name: str = None,
         gemini_model_name: str = None,
+        google_api_key: str = None,
+        kimi_model_name: str = None,
         huggingface_model_id: str = None,
         cache: diskcache.Cache = None,
         verbose: bool = True,
@@ -32,6 +35,8 @@ class LLMModels:
             ollama_vision_model_name (str, optional): Name of the Ollama vision model.
             chatgpt_model_name (str, optional): Name of the ChatGPT model (e.g., 'gpt-4o').
             gemini_model_name (str, optional): Name of the Gemini model (e.g., 'gemini-3.1-pro-preview').
+            google_api_key (str, optional): Google API key used for Gemini and Kimi audio fallback.
+            kimi_model_name (str, optional): Name of the Kimi model (e.g., 'kimi-k2.5').
             huggingface_model_id (str, optional): ID of the Hugging Face model.
             cache (diskcache.Cache, optional): A diskcache instance for LLM caching.
             verbose (bool): Whether to print verbose logs.
@@ -74,11 +79,22 @@ class LLMModels:
             "gemini": {
                 "condition": api_key
                 and not chatgpt_model_name
+                and not kimi_model_name
                 and not ollama_text_model_name,
                 "class": GeminiModel,
                 "args": {
                     "api_key": api_key,
                     "model_name": gemini_model_name,
+                    "verbose": verbose,
+                },
+            },
+            "kimi": {
+                "condition": kimi_model_name and api_key,
+                "class": KimiModel,
+                "args": {
+                    "api_key": api_key,
+                    "model_name": kimi_model_name,
+                    "google_api_key": google_api_key,
                     "verbose": verbose,
                 },
             },
