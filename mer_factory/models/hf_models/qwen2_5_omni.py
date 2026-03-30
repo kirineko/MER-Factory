@@ -1,3 +1,4 @@
+import gc
 import torch
 from pathlib import Path
 from rich.console import Console
@@ -94,6 +95,7 @@ class Qwen2_5OmniModel(BaseHFModel):
                 use_audio_in_video=use_audio_in_video,
             )
 
+            input_ids = inputs["input_ids"]
             inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
 
             for key, tensor in inputs.items():
@@ -103,9 +105,12 @@ class Qwen2_5OmniModel(BaseHFModel):
             with torch.inference_mode():
                 # The model can generate both text and audio.
                 text_ids, audio_output = self.model.generate(
-                    **inputs, use_audio_in_video=use_audio_in_video, max_new_tokens=512
+                    **inputs,
+                    use_audio_in_video=use_audio_in_video,
+                    max_new_tokens=512,
+                    pad_token_id=self.processor.tokenizer.eos_token_id,
                 )
-            input_len = inputs.input_ids.shape[1]
+            input_len = input_ids.shape[1]
             response_ids = text_ids[:, input_len:]
 
             generated_text = self.processor.batch_decode(
@@ -121,6 +126,10 @@ class Qwen2_5OmniModel(BaseHFModel):
                 f"[bold red]❌ Error during Qwen2.5-Omni generation: {e}[/bold red]"
             )
             return f""
+        finally:
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     def describe_facial_expression(self, prompt: str) -> str:
         """Generates a description from AU text."""

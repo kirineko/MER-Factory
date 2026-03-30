@@ -67,6 +67,7 @@ def main_orchestrator(config: AppConfig):
                 ollama_text_model_name=config.ollama_text_model,
                 ollama_vision_model_name=config.ollama_vision_model,
                 chatgpt_model_name=config.chatgpt_model,
+                gemini_model_name=config.gemini_model,
                 huggingface_model_id=config.huggingface_model_id,
                 cache=llm_cache,
                 verbose=config.verbose,
@@ -173,6 +174,12 @@ def process(
     chatgpt_model: str = typer.Option(
         None, "--chatgpt-model", "-cgm", help="ChatGPT model name (e.g., gpt-4o)."
     ),
+    gemini_model: str = typer.Option(
+        None,
+        "--gemini-model",
+        "-gm",
+        help="Gemini model name (e.g., gemini-3.1-pro-preview).",
+    ),
     huggingface_model_id: str = typer.Option(
         None, "--huggingface-model", "-hfm", help="Hugging Face model ID."
     ),
@@ -210,6 +217,7 @@ def process(
             ollama_vision_model=ollama_vision_model,
             ollama_text_model=ollama_text_model,
             chatgpt_model=chatgpt_model,
+            gemini_model=gemini_model,
             huggingface_model_id=huggingface_model_id,
         )
         main_orchestrator(config)

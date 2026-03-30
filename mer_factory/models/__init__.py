@@ -18,6 +18,7 @@ class LLMModels:
         ollama_text_model_name: str = None,
         ollama_vision_model_name: str = None,
         chatgpt_model_name: str = None,
+        gemini_model_name: str = None,
         huggingface_model_id: str = None,
         cache: diskcache.Cache = None,
         verbose: bool = True,
@@ -30,6 +31,7 @@ class LLMModels:
             ollama_text_model_name (str, optional): Name of the Ollama text model.
             ollama_vision_model_name (str, optional): Name of the Ollama vision model.
             chatgpt_model_name (str, optional): Name of the ChatGPT model (e.g., 'gpt-4o').
+            gemini_model_name (str, optional): Name of the Gemini model (e.g., 'gemini-3.1-pro-preview').
             huggingface_model_id (str, optional): ID of the Hugging Face model.
             cache (diskcache.Cache, optional): A diskcache instance for LLM caching.
             verbose (bool): Whether to print verbose logs.
@@ -74,7 +76,11 @@ class LLMModels:
                 and not chatgpt_model_name
                 and not ollama_text_model_name,
                 "class": GeminiModel,
-                "args": {"api_key": api_key, "verbose": verbose},
+                "args": {
+                    "api_key": api_key,
+                    "model_name": gemini_model_name,
+                    "verbose": verbose,
+                },
             },
         }
 

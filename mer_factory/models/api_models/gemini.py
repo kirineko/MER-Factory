@@ -16,14 +16,20 @@ class GeminiModel:
     A class to handle all interactions with the Google Gemini API.
     """
 
-    def __init__(self, api_key: str, verbose: bool = True):
+    def __init__(
+        self,
+        api_key: str,
+        model_name: str = None,
+        verbose: bool = True,
+    ):
         self.verbose = verbose
+        self.model_name = model_name or "gemini-2.5-flash"
         self.model = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash", google_api_key=api_key, temperature=0
+            model=self.model_name, google_api_key=api_key, temperature=0
         )
         self.vision_model = self.model  # Gemini models are multimodal
         if self.verbose:
-            console.log("Gemini models initialized.")
+            console.log(f"Gemini model initialized: {self.model_name}")
 
     async def describe_facial_expression(self, prompt: str) -> str:
         """Generates a description from AU text using Gemini."""

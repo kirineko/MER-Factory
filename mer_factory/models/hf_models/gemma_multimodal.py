@@ -1,3 +1,4 @@
+import gc
 import os
 import torch
 from pathlib import Path
@@ -133,6 +134,10 @@ class GemmaMultimodalModel(BaseHFModel):
                 f"[bold red]❌ Error during Hugging Face pipeline execution: {e}[/bold red]"
             )
             raise
+        finally:
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     def describe_facial_expression(self, prompt: str) -> str:
         """Generates a description from AU text."""

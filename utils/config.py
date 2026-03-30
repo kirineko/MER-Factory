@@ -68,6 +68,7 @@ class AppConfig(BaseModel):
     ollama_vision_model: Optional[str] = None
     ollama_text_model: Optional[str] = None
     chatgpt_model: Optional[str] = None
+    gemini_model: Optional[str] = None
     huggingface_model_id: Optional[str] = None
     labels: Dict[str, str] = Field(default_factory=dict)
 

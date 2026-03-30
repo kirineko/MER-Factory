@@ -2,8 +2,23 @@ import asyncio
 from pathlib import Path
 from rich.console import Console
 import os
+import subprocess
 
 console = Console(stderr=True)
+
+
+def _to_openface_path(path: Path, openface_executable: Path) -> str:
+    """Convert paths for Windows OpenFace binaries running under WSL."""
+    resolved = path.resolve()
+    if os.name != "nt" and openface_executable.suffix.lower() == ".exe":
+        converted = subprocess.run(
+            ["wslpath", "-w", str(resolved)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return converted.stdout.strip()
+    return str(resolved)
 
 
 class OpenFaceAdapter:
@@ -44,12 +59,15 @@ class OpenFaceAdapter:
             )
             return False
 
+        openface_executable_path = Path(openface_executable)
+        video_path_arg = _to_openface_path(video_path, openface_executable_path)
+        output_dir_arg = _to_openface_path(output_dir, openface_executable_path)
         command = [
             openface_executable,
             "-f",
-            str(video_path),
+            video_path_arg,
             "-out_dir",
-            str(output_dir),
+            output_dir_arg,
             "-aus",  # Extract Action Units
         ]
 
@@ -58,7 +76,10 @@ class OpenFaceAdapter:
 
         try:
             proc = await asyncio.create_subprocess_exec(
-                *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                *command,
+                cwd=str(openface_executable_path.parent),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await proc.communicate()
 

@@ -32,9 +32,15 @@ def get_hf_model_class(model_id: str) -> Type:
     Raises:
         ValueError: If the given model ID is not in the registry.
     """
-    # if passed in the local path str, extract the model id
-    real_model_id = model_id.split("/")[-2:]
-    registry_entry = HUGGINGFACE_MODEL_REGISTRY.get(real_model_id)
+    registry_entry = HUGGINGFACE_MODEL_REGISTRY.get(model_id)
+    if not registry_entry:
+        # If a local path or non-canonical form is passed in, normalize to the
+        # trailing "<org>/<model>" Hugging Face identifier used by the registry.
+        normalized_parts = [part for part in model_id.replace("\\", "/").split("/") if part]
+        real_model_id = (
+            "/".join(normalized_parts[-2:]) if len(normalized_parts) >= 2 else model_id
+        )
+        registry_entry = HUGGINGFACE_MODEL_REGISTRY.get(real_model_id)
     if not registry_entry:
         raise ValueError(
             f"Unsupported Hugging Face model ID: '{model_id}'. "

@@ -10,6 +10,20 @@ app = typer.Typer()
 console = Console()
 
 
+def to_openface_path(path: Path, openface_executable: Path) -> str:
+    """Convert paths for Windows OpenFace binaries running under WSL."""
+    resolved = path.resolve()
+    if os.name != "nt" and openface_executable.suffix.lower() == ".exe":
+        converted = subprocess.run(
+            ["wslpath", "-w", str(resolved)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return converted.stdout.strip()
+    return str(resolved)
+
+
 @app.command()
 def run(
     video_file: Path = typer.Argument(
@@ -44,6 +58,7 @@ def run(
         raise typer.Exit(code=1)
 
     openface_executable = Path(openface_executable_str)
+    openface_workdir = openface_executable.parent
 
     if not openface_executable.exists():
         console.print(
@@ -59,17 +74,21 @@ def run(
 
     console.rule("[bold magenta]OpenFace Integration Test[/bold magenta]")
     console.print(f"OpenFace Path: [cyan]{openface_executable}[/cyan]")
+    console.print(f"OpenFace Working Dir: [cyan]{openface_workdir}[/cyan]")
     console.print(f"Video File: [cyan]{video_file}[/cyan]")
     console.print(f"Output Directory: [cyan]{output_dir}[/cyan]")
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    output_csv = output_dir / f"{video_file.stem}.csv"
+    video_file_arg = to_openface_path(video_file, openface_executable)
+    output_dir_arg = to_openface_path(output_dir, openface_executable)
 
     command = [
         str(openface_executable),
         "-f",
-        str(video_file),
+        video_file_arg,
         "-out_dir",
-        str(output_dir),
+        output_dir_arg,
         "-aus",
     ]
 
@@ -80,6 +99,7 @@ def run(
         console.log("🚀 Starting OpenFace analysis... (This might take a while)")
         process = subprocess.run(
             command,
+            cwd=openface_workdir,
             check=True,
             capture_output=True,
             text=True,
@@ -87,6 +107,12 @@ def run(
 
         console.rule("[bold green]✅ Success![/bold green]")
         console.log("OpenFace completed the analysis successfully.")
+        if output_csv.exists():
+            console.log(f"CSV created: {output_csv}")
+        else:
+            console.log(
+                f"[bold yellow]Warning:[/bold yellow] OpenFace exited successfully, but no CSV was found at {output_csv}"
+            )
         console.log(f"Check for a '.csv' file in your output directory: {output_dir}")
 
     except FileNotFoundError:
