@@ -1,7 +1,7 @@
 # 👉🏻 MER-Factory 👈🏻
 
 <p align="left">
-        中文</a>&nbsp ｜ &nbsp<a href="README.md">English</a>
+        中文&nbsp ｜ &nbsp<a href="README_en.md">English</a>
 </p>
 <br>
 

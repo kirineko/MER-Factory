@@ -195,6 +195,8 @@ cython_debug/
 
 *output*/
 video/
+/dataset/
+/input/
 
 
 # Jekyll/Documentation specific
