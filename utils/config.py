@@ -70,6 +70,7 @@ class AppConfig(BaseModel):
     chatgpt_model: Optional[str] = None
     gemini_model: Optional[str] = None
     kimi_model: Optional[str] = None
+    qwen_omni_model: Optional[str] = None
     huggingface_model_id: Optional[str] = None
     labels: Dict[str, str] = Field(default_factory=dict)
 
@@ -82,6 +83,9 @@ class AppConfig(BaseModel):
     )
     moonshot_api_key: Optional[str] = Field(
         default=os.getenv("MOONSHOT_API_KEY"), repr=False
+    )
+    dashscope_api_key: Optional[str] = Field(
+        default=os.getenv("DASHSCOPE_API_KEY"), repr=False
     )
     google_api_key: Optional[str] = Field(
         default=os.getenv("GOOGLE_API_KEY"), repr=False
@@ -121,6 +125,8 @@ class AppConfig(BaseModel):
     @property
     def api_key(self) -> Optional[str]:
         """Returns the appropriate API key based on the selected model."""
+        if self.qwen_omni_model:
+            return self.dashscope_api_key
         if self.chatgpt_model:
             return self.openai_api_key
         if self.kimi_model:
@@ -136,10 +142,14 @@ class AppConfig(BaseModel):
                 self.ollama_vision_model,
                 self.chatgpt_model,
                 self.kimi_model,
-                self.api_key and not self.chatgpt_model,  # Gemini
+                self.qwen_omni_model,
+                self.api_key
+                and not self.chatgpt_model
+                and not self.kimi_model
+                and not self.qwen_omni_model,  # Gemini
             ]
         ):
-            return "A model must be provided via --huggingface-model, --ollama-..., --chatgpt-model, --kimi-model, or a GOOGLE_API_KEY/OPENAI_API_KEY/MOONSHOT_API_KEY in the .env file."
+            return "A model must be provided via --huggingface-model, --ollama-..., --chatgpt-model, --kimi-model, --qwen-omni-model, or a GOOGLE_API_KEY/OPENAI_API_KEY/MOONSHOT_API_KEY/DASHSCOPE_API_KEY in the .env file."
         return None
 
     def get_openface_path_error(self) -> Optional[str]:

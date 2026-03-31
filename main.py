@@ -70,6 +70,7 @@ def main_orchestrator(config: AppConfig):
                 gemini_model_name=config.gemini_model,
                 google_api_key=config.google_api_key,
                 kimi_model_name=config.kimi_model,
+                qwen_omni_model_name=config.qwen_omni_model,
                 huggingface_model_id=config.huggingface_model_id,
                 cache=llm_cache,
                 verbose=config.verbose,
@@ -188,6 +189,12 @@ def process(
         "-km",
         help="Kimi model name (e.g., kimi-k2.5).",
     ),
+    qwen_omni_model: str = typer.Option(
+        None,
+        "--qwen-omni-model",
+        "-qom",
+        help="Qwen Omni model name (e.g., qwen3-omni-flash).",
+    ),
     huggingface_model_id: str = typer.Option(
         None, "--huggingface-model", "-hfm", help="Hugging Face model ID."
     ),
@@ -227,6 +234,7 @@ def process(
             chatgpt_model=chatgpt_model,
             gemini_model=gemini_model,
             kimi_model=kimi_model,
+            qwen_omni_model=qwen_omni_model,
             huggingface_model_id=huggingface_model_id,
         )
         main_orchestrator(config)

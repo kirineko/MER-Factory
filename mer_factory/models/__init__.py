@@ -4,6 +4,7 @@ import diskcache
 from .api_models.gemini import GeminiModel
 from .api_models.kimi import KimiModel
 from .api_models.ollama import OllamaModel
+from .api_models.qwen_omni import QwenOmniModel
 from .api_models.chatgpt import ChatGptModel
 from .hf_models.hf_client import HFGradioClientModel
 from utils.caching import cache_llm_call
@@ -22,6 +23,7 @@ class LLMModels:
         gemini_model_name: str = None,
         google_api_key: str = None,
         kimi_model_name: str = None,
+        qwen_omni_model_name: str = None,
         huggingface_model_id: str = None,
         cache: diskcache.Cache = None,
         verbose: bool = True,
@@ -37,6 +39,7 @@ class LLMModels:
             gemini_model_name (str, optional): Name of the Gemini model (e.g., 'gemini-3.1-pro-preview').
             google_api_key (str, optional): Google API key used for Gemini and Kimi audio fallback.
             kimi_model_name (str, optional): Name of the Kimi model (e.g., 'kimi-k2.5').
+            qwen_omni_model_name (str, optional): Name of the Qwen Omni model (e.g., 'qwen3.5-omni-plus').
             huggingface_model_id (str, optional): ID of the Hugging Face model.
             cache (diskcache.Cache, optional): A diskcache instance for LLM caching.
             verbose (bool): Whether to print verbose logs.
@@ -76,10 +79,20 @@ class LLMModels:
                     "verbose": verbose,
                 },
             },
+            "qwen_omni": {
+                "condition": qwen_omni_model_name and api_key,
+                "class": QwenOmniModel,
+                "args": {
+                    "api_key": api_key,
+                    "model_name": qwen_omni_model_name,
+                    "verbose": verbose,
+                },
+            },
             "gemini": {
                 "condition": api_key
                 and not chatgpt_model_name
                 and not kimi_model_name
+                and not qwen_omni_model_name
                 and not ollama_text_model_name,
                 "class": GeminiModel,
                 "args": {

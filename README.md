@@ -15,6 +15,7 @@
 - 至少一种可用模型配置
   - Gemini：`GOOGLE_API_KEY`
   - Kimi：`MOONSHOT_API_KEY` 和 `--kimi-model`
+  - Qwen Omni：`DASHSCOPE_API_KEY` 和 `--qwen-omni-model`
   - ChatGPT：`OPENAI_API_KEY` 和 `--chatgpt-model`
   - Ollama：本地模型服务
   - Hugging Face：`--huggingface-model`，必要时配合本地 HF API Server
@@ -174,6 +175,9 @@ GOOGLE_API_KEY=your_google_api_key
 # 使用 Kimi 时需要
 MOONSHOT_API_KEY=your_kimi_key
 
+# 使用 Qwen Omni 时需要
+DASHSCOPE_API_KEY=your_dashscope_key
+
 # 使用 ChatGPT 时需要
 OPENAI_API_KEY=your_openai_key
 
@@ -188,6 +192,7 @@ HF_API_BASE_URL="http://localhost:7860/"
 
 - 不传模型参数时，项目默认走 Gemini，需要 `GOOGLE_API_KEY`
 - 使用 Kimi 时要传 `--kimi-model`，并在 `.env` 里设置 `MOONSHOT_API_KEY`
+- 使用 Qwen Omni 时要传 `--qwen-omni-model`，并在 `.env` 里设置 `DASHSCOPE_API_KEY`
 - Kimi 的音频分析在当前实现里会回退到 Gemini，所以跑带音频的 MER 时，建议同时保留 `GOOGLE_API_KEY`
 - 使用 ChatGPT 时要传 `--chatgpt-model`，并在 `.env` 里设置 `OPENAI_API_KEY`
 - `OPENFACE_EXECUTABLE` 必须是绝对路径
@@ -229,6 +234,12 @@ python main.py input/0001.mp4 output/ --type MER --gemini-model gemini-3.1-flash
 
 ```bash
 python main.py input/0001.mp4 output/ --type MER --kimi-model kimi-k2.5 --silent
+```
+
+使用 Qwen Omni：
+
+```bash
+python main.py input/0001.mp4 output/ --type MER --qwen-omni-model qwen3.5-omni-plus --silent
 ```
 
 使用 ChatGPT：
@@ -325,4 +336,3 @@ python export.py --output_folder output/ --file_type mer --export_format sharegp
 - 官方入门文档：https://lum.is-a.dev/MER-Factory/zh/docs/getting-started
 - CH-SIMS / CH-SIMS v2.0 数据集页面：https://thuiar.github.io/sims.github.io/chsims
 - OpenFace：https://github.com/TadasBaltrusaitis/OpenFace/wiki
-
