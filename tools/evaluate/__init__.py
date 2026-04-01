@@ -8,6 +8,9 @@ Modules are organized as follows:
 - aggregator: compose per-sample metrics into a composite score
 """
 
+import importlib
+import sys
+
 from .loaders import (
     SampleArtifactPaths,
     find_samples,
@@ -22,7 +25,24 @@ from .metrics_grounding import (
     compute_asr_wer,
 )
 from .aggregator import aggregate_sample_metrics
+from .runtime_utils import (
+    suppress_optional_model_noise,
+    load_local_whisper_pipeline,
+    enable_offline_hf_mode,
+)
 import torch
+
+enable_offline_hf_mode()
+
+
+def _import_laion_clap():
+    """Import laion_clap without letting it parse this process's CLI arguments."""
+    original_argv = sys.argv[:]
+    try:
+        sys.argv = [original_argv[0]]
+        return importlib.import_module("laion_clap")
+    finally:
+        sys.argv = original_argv
 
 # Add model initialization helper
 def initialize_models():
@@ -33,9 +53,10 @@ def initialize_models():
     # Initialize CLIP models
     print("Loading CLIP model...")
     try:
-        import open_clip
-        model, _, preprocess = open_clip.create_model_and_transforms("ViT-B-32", pretrained="laion2b_s34b_b79k")
-        tokenizer = open_clip.get_tokenizer("ViT-B-32")
+        with suppress_optional_model_noise():
+            import open_clip
+            model, _, preprocess = open_clip.create_model_and_transforms("ViT-B-32", pretrained="laion2b_s34b_b79k")
+            tokenizer = open_clip.get_tokenizer("ViT-B-32")
         model.eval()
         model.to(device)
         models['clip'] = {
@@ -51,8 +72,9 @@ def initialize_models():
     # Initialize CLAP model
     print("Loading CLAP model...")
     try:
-        import laion_clap
-        model = laion_clap.CLAP_Module(enable_fusion=False, amodel="HTSAT-base")
+        with suppress_optional_model_noise():
+            laion_clap = _import_laion_clap()
+            model = laion_clap.CLAP_Module(enable_fusion=False, amodel="HTSAT-base")
         model.eval()
         model.to(device)
         models['clap'] = model
@@ -64,10 +86,11 @@ def initialize_models():
     # Initialize NLI model
     print("Loading NLI model...")
     try:
-        from transformers import AutoTokenizer, AutoModelForSequenceClassification
-        model_name = "microsoft/deberta-large-mnli"
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForSequenceClassification.from_pretrained(model_name)
+        with suppress_optional_model_noise():
+            from transformers import AutoTokenizer, AutoModelForSequenceClassification
+            model_name = "microsoft/deberta-large-mnli"
+            tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
+            model = AutoModelForSequenceClassification.from_pretrained(model_name, local_files_only=True)
         model.eval()
         model.to(device)
         models['nli'] = {
@@ -82,12 +105,7 @@ def initialize_models():
     # Initialize Whisper model using HuggingFace pipeline
     print("Loading Whisper model...")
     try:
-        from transformers import pipeline
-        pipe = pipeline(
-            "automatic-speech-recognition",
-            model="openai/whisper-base",
-            device=device
-        )
+        pipe = load_local_whisper_pipeline()
         models['whisper'] = pipe
         print(f"✓ Whisper model loaded on {device}")
     except Exception as e:

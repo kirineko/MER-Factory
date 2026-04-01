@@ -353,8 +353,13 @@ async def extract_peak_image(state):
 
 async def generate_peak_frame_visual_description(state):
     """Generates a visual description for the peak frame image."""
-    # Skip if already passed (output exists) and no new prompt (not a retry target)
-    if state.get("image_visual_description") and not state.get("dynamic_prompts", {}).get("peak_frame"):
+    # Skip if all peak-frame descriptions already exist and no new prompt is requested.
+    if (
+        state.get("image_visual_description")
+        and state.get("au_text_description")
+        and state.get("llm_au_description")
+        and not state.get("dynamic_prompts", {}).get("peak_frame")
+    ):
         if state.get("verbose", True):
             console.log("[dim]Skipping Peak Frame Analysis (already passed).[/dim]")
         return {}
@@ -375,11 +380,28 @@ async def generate_peak_frame_visual_description(state):
         # No label for peak frame, since this is use for MER.
         prompt = prompts.get_image_prompt()
     
-    visual_obj_desc = await model.describe_image(peak_frame_path, prompt)
+    au_text_desc = state.get("peak_frame_au_description", "")
+
+    if au_text_desc == "Neutral expression at the overall peak frame.":
+        llm_au_desc_task = asyncio.sleep(0, result="A neutral facial expression was detected.")
+    else:
+        facial_prompt = prompts.get_facial_expression_prompt().format(au_text=au_text_desc)
+        llm_au_desc_task = model.describe_facial_expression(facial_prompt)
+
+    visual_obj_desc_task = model.describe_image(peak_frame_path, prompt)
+    llm_au_description, visual_obj_desc = await asyncio.gather(
+        llm_au_desc_task,
+        visual_obj_desc_task,
+    )
 
     if verbose:
+        console.log(f"LLM AU Description: [cyan]{llm_au_description}[/cyan]")
         console.log(f"Peak Frame Visual Description: [cyan]{visual_obj_desc}[/cyan]")
-    return {"image_visual_description": visual_obj_desc}
+    return {
+        "au_text_description": au_text_desc,
+        "llm_au_description": llm_au_description,
+        "image_visual_description": visual_obj_desc,
+    }
 
 
 
@@ -410,7 +432,7 @@ async def synthesize_summary(state):
     )
 
     # Peak frame facial expression
-    peak_frame_au_desc = state.get("peak_frame_au_description")
+    peak_frame_au_desc = state.get("llm_au_description") or state.get("peak_frame_au_description")
     timestamp = state.get("peak_frame_info", {}).get("timestamp", 0)
 
     clues.append(
@@ -467,6 +489,9 @@ async def save_mer_results(state):
         "audio_path": str(Path(state["audio_path"]).resolve(strict=False)),
         "chronological_emotion_peaks": state.get("detected_emotions", []),
         "overall_peak_frame_info": state["peak_frame_info"],
+        "peak_frame_au_description": state.get("peak_frame_au_description"),
+        "au_text_description": state.get("au_text_description"),
+        "llm_au_description": state.get("llm_au_description"),
         "coarse_descriptions_at_peak": descriptions,
         "final_summary": state["final_summary"],
     }

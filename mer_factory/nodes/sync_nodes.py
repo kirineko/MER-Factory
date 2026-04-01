@@ -315,14 +315,25 @@ def generate_peak_frame_visual_description(state):
     model = state["models"].model_instance
     prompts: PromptTemplates = state["prompts"]
     peak_frame_path = Path(state["peak_frame_path"])
+    au_text_desc = state.get("peak_frame_au_description", "")
 
     # No label for peak frame, since this is use for MER.
     prompt = prompts.get_image_prompt()
     visual_obj_desc = model.describe_image(peak_frame_path, prompt)
+    if au_text_desc == "Neutral expression at the overall peak frame.":
+        llm_au_description = "A neutral facial expression was detected."
+    else:
+        facial_prompt = prompts.get_facial_expression_prompt().format(au_text=au_text_desc)
+        llm_au_description = model.describe_facial_expression(facial_prompt)
 
     if verbose:
+        console.log(f"LLM AU Description: [cyan]{llm_au_description}[/cyan]")
         console.log(f"Peak Frame Visual Description: [cyan]{visual_obj_desc}[/cyan]")
-    return {"image_visual_description": visual_obj_desc}
+    return {
+        "au_text_description": au_text_desc,
+        "llm_au_description": llm_au_description,
+        "image_visual_description": visual_obj_desc,
+    }
 
 
 def synthesize_summary(state):
@@ -349,7 +360,7 @@ def synthesize_summary(state):
     )
 
     # Peak frame facial expression
-    peak_frame_au_desc = state.get("peak_frame_au_description")
+    peak_frame_au_desc = state.get("llm_au_description") or state.get("peak_frame_au_description")
     timestamp = state.get("peak_frame_info", {}).get("timestamp", 0)
 
     clues.append(
@@ -406,6 +417,9 @@ def save_mer_results(state):
         "audio_path": str(Path(state["audio_path"]).resolve(strict=False)),
         "chronological_emotion_peaks": state.get("detected_emotions", []),
         "overall_peak_frame_info": state["peak_frame_info"],
+        "peak_frame_au_description": state.get("peak_frame_au_description"),
+        "au_text_description": state.get("au_text_description"),
+        "llm_au_description": state.get("llm_au_description"),
         "coarse_descriptions_at_peak": descriptions,
         "final_summary": state["final_summary"],
     }

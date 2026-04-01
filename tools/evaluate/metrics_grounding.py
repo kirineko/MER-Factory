@@ -1,11 +1,30 @@
 from __future__ import annotations
 
+import importlib
+import math
+import sys
 from typing import Dict, Optional, List, Tuple
 from PIL import Image
-import open_clip
 import torch
-import laion_clap
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+from .runtime_utils import suppress_optional_model_noise, load_local_whisper_pipeline
+
+
+def _import_laion_clap():
+    """Import laion_clap without letting it parse this process's CLI arguments."""
+    original_argv = sys.argv[:]
+    try:
+        sys.argv = [original_argv[0]]
+        return importlib.import_module("laion_clap")
+    finally:
+        sys.argv = original_argv
+
+
+def _as_float_tensor(value, device):
+    """Normalize CLAP outputs to float tensors across package versions."""
+    if isinstance(value, torch.Tensor):
+        return value.to(device=device, dtype=torch.float32)
+    return torch.as_tensor(value, dtype=torch.float32, device=device)
 
 
 def compute_clip_image_text_score(
@@ -40,6 +59,8 @@ def compute_clip_image_text_score(
         try:
             # Use provided models or initialize new ones
             if clip_model is None or clip_preprocess is None or clip_tokenizer is None:
+                import open_clip
+
                 model, _, preprocess = open_clip.create_model_and_transforms("ViT-B-32", pretrained="laion2b_s34b_b79k")
                 tokenizer = open_clip.get_tokenizer("ViT-B-32")
                 model.eval()
@@ -96,6 +117,8 @@ def compute_clip_image_text_score(
         try:
             # Use provided models or initialize new ones
             if clip_model is None or clip_preprocess is None or clip_tokenizer is None:
+                import open_clip
+
                 model, _, preprocess = open_clip.create_model_and_transforms("ViT-B-32", pretrained="laion2b_s34b_b79k")
                 tokenizer = open_clip.get_tokenizer("ViT-B-32")
                 model.eval()
@@ -139,12 +162,14 @@ def compute_clap_audio_text_score(audio_path, text, clap_model=None):
     if is_batch:
         # Batch processing
         if not audio_path or not text:
-            return [0.0] * len(audio_path) if audio_path else []
+            return [math.nan] * len(audio_path) if audio_path else []
         
         try:
             # Use provided model or initialize new one
             if clap_model is None:
-                model = laion_clap.CLAP_Module(enable_fusion=False, amodel="HTSAT-base")
+                with suppress_optional_model_noise():
+                    laion_clap = _import_laion_clap()
+                    model = laion_clap.CLAP_Module(enable_fusion=False, amodel="HTSAT-base")
                 model.eval()
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 model.to(device)
@@ -164,37 +189,42 @@ def compute_clap_audio_text_score(audio_path, text, clap_model=None):
                     valid_indices.append(i)
             
             if not valid_audio_paths:
-                return [0.0] * len(audio_path)
+                return [math.nan] * len(audio_path)
             
             # Batch process valid samples
             with torch.no_grad():
-                audio_embeds = model.get_audio_embedding_from_filelist(
-                    x=valid_audio_paths, use_tensor=True
-                ).to(device)
-                text_embeds = model.get_text_embedding(
-                    valid_texts, use_tensor=True
-                ).to(device)
+                with suppress_optional_model_noise():
+                    audio_embeds = _as_float_tensor(
+                        model.get_audio_embedding_from_filelist(x=valid_audio_paths),
+                        device,
+                    )
+                    text_embeds = _as_float_tensor(
+                        model.get_text_embedding(valid_texts),
+                        device,
+                    )
                 
                 audio_embeds = audio_embeds / audio_embeds.norm(dim=-1, keepdim=True)
                 text_embeds = text_embeds / text_embeds.norm(dim=-1, keepdim=True)
                 sims = (audio_embeds * text_embeds).sum(dim=-1).cpu().numpy()
             
             # Map results back to original indices
-            results = [0.0] * len(audio_path)
+            results = [math.nan] * len(audio_path)
             for idx, sim in zip(valid_indices, sims):
                 results[idx] = float(sim)
             
             return results
         except Exception:
-            return [0.0] * len(audio_path)
+            return [math.nan] * len(audio_path)
     else:
         # Single sample processing
         if not audio_path or not text:
-            return 0.0
+            return math.nan
         try:
             # Use provided model or initialize new one
             if clap_model is None:
-                model = laion_clap.CLAP_Module(enable_fusion=False, amodel="HTSAT-base")
+                with suppress_optional_model_noise():
+                    laion_clap = _import_laion_clap()
+                    model = laion_clap.CLAP_Module(enable_fusion=False, amodel="HTSAT-base")
                 model.eval()
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 model.to(device)
@@ -203,14 +233,21 @@ def compute_clap_audio_text_score(audio_path, text, clap_model=None):
                 device = next(model.parameters()).device
                 
             with torch.no_grad():
-                audio_embed = model.get_audio_embedding_from_filelist(x=[audio_path], use_tensor=True).to(device)
-                text_embed = model.get_text_embedding([text], use_tensor=True).to(device)
+                with suppress_optional_model_noise():
+                    audio_embed = _as_float_tensor(
+                        model.get_audio_embedding_from_filelist(x=[audio_path]),
+                        device,
+                    )
+                    text_embed = _as_float_tensor(
+                        model.get_text_embedding([text]),
+                        device,
+                    )
                 audio_embed = audio_embed / audio_embed.norm(dim=-1, keepdim=True)
                 text_embed = text_embed / text_embed.norm(dim=-1, keepdim=True)
                 sim = (audio_embed @ text_embed.T).item()
             return float(sim)
         except Exception:
-            return 0.0
+            return math.nan
 
 
 def compute_nli_consistency_scores(
@@ -246,9 +283,11 @@ def compute_nli_consistency_scores(
         try:
             # Use provided models or initialize new ones
             if nli_model is None or nli_tokenizer is None:
+                from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
                 model_name = "microsoft/deberta-large-mnli"
-                tokenizer = AutoTokenizer.from_pretrained(model_name)
-                model = AutoModelForSequenceClassification.from_pretrained(model_name)
+                tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
+                model = AutoModelForSequenceClassification.from_pretrained(model_name, local_files_only=True)
                 model.eval()
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 model.to(device)
@@ -304,9 +343,11 @@ def compute_nli_consistency_scores(
         try:
             # Use provided models or initialize new ones
             if nli_model is None or nli_tokenizer is None:
+                from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
                 model_name = "microsoft/deberta-large-mnli"
-                tokenizer = AutoTokenizer.from_pretrained(model_name)
-                model = AutoModelForSequenceClassification.from_pretrained(model_name)
+                tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
+                model = AutoModelForSequenceClassification.from_pretrained(model_name, local_files_only=True)
                 model.eval()
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 model.to(device)
@@ -342,7 +383,7 @@ def compute_nli_consistency_scores(
 def compute_asr_wer(reference_transcript, audio_path, whisper_model=None):
     """
     Compute WER between a strong ASR transcript (Whisper) and the model transcript.
-    If Whisper missing, returns 0.0 (neutral).
+    If Whisper is unavailable, returns NaN so callers can exclude it from scoring.
     
     Supports both single and batch processing automatically.
     
@@ -360,7 +401,7 @@ def compute_asr_wer(reference_transcript, audio_path, whisper_model=None):
     if is_batch:
         # Batch processing
         if not audio_path or not reference_transcript:
-            return [0.0] * len(audio_path) if audio_path else []
+            return [math.nan] * len(audio_path) if audio_path else []
         
         try:
             from pathlib import Path
@@ -377,20 +418,16 @@ def compute_asr_wer(reference_transcript, audio_path, whisper_model=None):
                     valid_indices.append(i)
             
             if not valid_audio_paths:
-                return [0.0] * len(audio_path)
+                return [math.nan] * len(audio_path)
             
             # Batch process valid samples
             if whisper_model is None:
-                from transformers import pipeline
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                pipe = pipeline(
-                    "automatic-speech-recognition",
-                    model="openai/whisper-base",
-                    device=device
-                )
-                asr_results = pipe(valid_audio_paths, batch_size=len(valid_audio_paths))
+                pipe = load_local_whisper_pipeline()
+                with suppress_optional_model_noise():
+                    asr_results = pipe(valid_audio_paths, batch_size=len(valid_audio_paths))
             else:
-                asr_results = whisper_model(valid_audio_paths, batch_size=len(valid_audio_paths))
+                with suppress_optional_model_noise():
+                    asr_results = whisper_model(valid_audio_paths, batch_size=len(valid_audio_paths))
             
             # Extract texts and compute WER
             asr_texts = []
@@ -399,58 +436,52 @@ def compute_asr_wer(reference_transcript, audio_path, whisper_model=None):
                 asr_texts.append(asr_text)
             
             # Map results back to original indices
-            results = [0.0] * len(audio_path)
+            results = [math.nan] * len(audio_path)
             for idx, asr_text, ref in zip(valid_indices, asr_texts, valid_refs):
                 if asr_text:
                     results[idx] = _wer(asr_text, ref)
             
             return results
         except Exception:
-            return [0.0] * len(audio_path)
+            return [math.nan] * len(audio_path)
     else:
         # Single sample processing
         if not audio_path or not reference_transcript:
-            return 0.0
+            return math.nan
         
         # Check if audio file exists
         try:
             from pathlib import Path
             if not Path(audio_path).exists():
-                return 0.0
+                return math.nan
         except Exception:
-            return 0.0
+            return math.nan
         
         try:
             # Use provided model or initialize new one
             if whisper_model is None:
-                # Initialize HuggingFace pipeline on-the-fly
                 try:
-                    from transformers import pipeline
-                    device = "cuda" if torch.cuda.is_available() else "cpu"
-                    pipe = pipeline(
-                        "automatic-speech-recognition",
-                        model="openai/whisper-base",
-                        device=device
-                    )
-                    result = pipe(audio_path)
+                    pipe = load_local_whisper_pipeline()
+                    with suppress_optional_model_noise():
+                        result = pipe(audio_path)
                     asr_text = result["text"] if isinstance(result, dict) else str(result)
                 except Exception:
-                    # If Whisper fails, return neutral score
-                    return 0.0
+                    return math.nan
             else:
                 # Use provided HuggingFace pipeline model
                 try:
-                    result = whisper_model(audio_path)
+                    with suppress_optional_model_noise():
+                        result = whisper_model(audio_path)
                     asr_text = result["text"] if isinstance(result, dict) else str(result)
                 except Exception:
-                    return 0.0
+                    return math.nan
 
             if not asr_text:
-                return 0.0
+                return math.nan
                 
             return _wer(asr_text, reference_transcript)
         except Exception:
-            return 0.0
+            return math.nan
 
 
 def _wer(hyp: str, ref: str) -> float:
@@ -511,10 +542,26 @@ def _normalize_text(s: str) -> str:
     try:
         # Try using opencc if available (optional dependency)
         import opencc  # type: ignore
-        converter = opencc.OpenCC('t2s.json')  # Traditional to Simplified
+        converter = opencc.OpenCC('t2s')  # Traditional to Simplified
         text = converter.convert(text)
     except ImportError:
         # Fallback: basic manual conversion for common characters
+        traditional_to_simplified = {
+            '學': '学', '習': '习', '語': '语', '話': '话', '時': '时', '間': '间',
+            '個': '个', '們': '们', '來': '来', '這': '这', '那': '那', '裡': '里',
+            '說': '说', '聽': '听', '會': '会', '點': '点', '還': '还', '過': '过',
+            '現': '现', '發': '发', '經': '经', '準': '准', '標': '标', '課': '课',
+            '題': '题', '問': '问', '答': '答', '開': '开', '關': '关', '門': '门',
+            '窗': '窗', '書': '书', '讀': '读', '寫': '写', '字': '字', '詞': '词',
+            '義': '义', '思': '思', '想': '想', '記': '记', '憶': '忆', '識': '识',
+            '認': '认', '知': '知', '覺': '觉', '感': '感', '情': '情', '愛': '爱',
+            '喜': '喜', '歡': '欢', '討': '讨', '厭': '厌', '興': '兴', '趣': '趣'
+        }
+        for trad, simp in traditional_to_simplified.items():
+            text = text.replace(trad, simp)
+    except Exception:
+        # Some opencc-python-reimplemented builds expect config names without ".json".
+        # If local config lookup still fails, keep a conservative manual fallback.
         traditional_to_simplified = {
             '學': '学', '習': '习', '語': '语', '話': '话', '時': '时', '間': '间',
             '個': '个', '們': '们', '來': '来', '這': '这', '那': '那', '裡': '里',

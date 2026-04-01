@@ -235,6 +235,24 @@ python export.py --input_csv path/to/csv_file.csv --export_format sharegpt
 
 MER-Factory 包含了一个全面的无参考评估工具包，用于在无需人工评分的情况下评估生成标注的质量。
 
+#### 先不要直接运行命令
+
+第一次运行评估前，至少先确认下面几件事：
+
+- 已激活项目虚拟环境，并执行过 `uv pip install -r requirements.txt`
+- `torch` 和 `torchaudio` 可以一起正常导入
+- 能访问 Hugging Face，或已经配置镜像 `HF_ENDPOINT=https://hf-mirror.com`
+- 首次需要下载评估模型，不是纯本地零依赖命令
+
+评估依赖的主要模型如下：
+
+- `laion/CLIP-ViT-B-32-laion2B-s34B-b79K`：用于 `CLIP` 图像分数
+- `roberta-base`：`LAION-CLAP` 的文本编码器依赖，用于 `CLAP` 音频分数
+- `microsoft/deberta-large-mnli`：用于 `NLI` 一致性
+- `openai/whisper-base`：用于 `ASR WER`
+
+如果这些依赖没有准备好，脚本虽然还能跑完，但 `CLAP` 和 `WER` 之类的结果可能只是 fallback 值，不是真实分数。完整前置步骤请先看 [`tools/evaluate/README.md`](tools/evaluate/README.md)。
+
 #### 基础评估
 ```bash
 # 评估输出目录中的所有样本

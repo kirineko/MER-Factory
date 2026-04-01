@@ -323,11 +323,36 @@ python export.py --output_folder output/ --file_type mer --export_csv --export_p
 python export.py --output_folder output/ --file_type mer --export_format sharegpt --export_path output/mer_sharegpt.json
 ```
 
+### 10.4 运行评估前先做准备
+
+不要在新环境里直接跑下面这条命令：
+
+```bash
+python tools/evaluate.py output/ --export-csv output/evaluation_summary.csv
+```
+
+评估不是零依赖命令。第一次运行前，至少先确认：
+
+- 已激活 `.venv` 并完成 `uv pip install -r requirements.txt`
+- `torch` 和 `torchaudio` 可以一起正常导入
+- 可以访问 Hugging Face，或者已经配置 `HF_ENDPOINT=https://hf-mirror.com`
+- 接受首次会下载评估模型，不是纯本地秒开
+
+评估依赖的主要模型包括：
+
+- `laion/CLIP-ViT-B-32-laion2B-s34B-b79K`：用于 `CLIP` 图像分数
+- `roberta-base`：`LAION-CLAP` 的文本编码器依赖
+- `microsoft/deberta-large-mnli`：用于 `NLI` 一致性
+- `openai/whisper-base`：用于 `ASR WER`
+
+如果这些依赖没有准备好，脚本可能还能结束，但 `CLAP=0.5` 或 `WER=0.0` 这类结果很可能只是 fallback 值，不代表真实质量。完整前置步骤、镜像用法和环境校验请先看 [tools/evaluate/README.md](/Users/kirinekoclaw/github/MER-Factory/tools/evaluate/README.md)。
+
 ## 11. 排查建议
 
 - `ffmpeg` / `ffprobe` 找不到：先检查 PATH 和 `ffmpeg -version`
 - `OpenFace executable not found`：检查 `.env` 中的 `OPENFACE_EXECUTABLE` 是否为绝对路径
 - 直接跑 `MER` 时报 API 相关错误：检查你选择的模型和 `.env` 中的 key 是否对应
+- 直接跑评估结果异常“整齐”：先检查 `torch` / `torchaudio` / Hugging Face 模型是否真的准备完成
 - 传了 `--label-file` 却报 CSV 列不对：把标签文件整理成 `name,label`
 - 目录能打开但没有处理任何文件：确认目录下是 `mp4/avi/mov/mkv/flv/wmv/jpg/jpeg/png/bmp/wav/mp3/flac/m4a`
 

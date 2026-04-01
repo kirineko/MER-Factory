@@ -264,6 +264,24 @@ python export.py --output_folder "{output_folder}" --file_type mer --export_path
 
 MER-Factory includes a comprehensive reference-free evaluation toolkit to assess the quality of generated annotations without human ratings.
 
+#### Do not start with the command alone
+
+Before the first evaluation run, make sure all of the following are true:
+
+- the project virtual environment is active and `uv pip install -r requirements.txt` has completed
+- `torch` and `torchaudio` import successfully together
+- Hugging Face is reachable, or a mirror such as `HF_ENDPOINT=https://hf-mirror.com` is configured
+- the required evaluation checkpoints have been downloaded at least once
+
+The main model dependencies are:
+
+- `laion/CLIP-ViT-B-32-laion2B-s34B-b79K` for the `CLIP` image score
+- `roberta-base` as the text encoder dependency used by `LAION-CLAP`
+- `microsoft/deberta-large-mnli` for `NLI` consistency
+- `openai/whisper-base` for `ASR WER`
+
+If these dependencies are missing, the script can still finish, but some metrics may degrade to fallback values instead of real scores. Read [`tools/evaluate/README.md`](tools/evaluate/README.md) first for the full preflight checklist.
+
 #### Basic Evaluation
 ```bash
 # Evaluate all samples in output directory

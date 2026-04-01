@@ -2,6 +2,81 @@
 
 A comprehensive reference-free evaluation toolkit for MER-Factory outputs. This suite provides automated metrics to assess annotation quality without human ratings, supporting MER (full), audio, video, image, and AU analysis pipelines with graceful degradation when artifacts or dependencies are missing.
 
+## Preflight Checklist
+
+Before running evaluation, make sure the following prerequisites are ready. Most evaluation issues come from missing runtime dependencies rather than the command itself.
+
+### Required Python packages
+
+The evaluation pipeline depends on the following packages in addition to the core project dependencies:
+
+- `torch`
+- `torchaudio`
+- `transformers`
+- `open_clip_torch`
+- `laion-clap`
+- `opencc-python-reimplemented`
+
+`torchaudio` is required by the CLAP audio grounding path. If it is missing or mismatched with your installed `torch`, `clap_audio_score` will silently fall back to a default value and become unreliable.
+
+### Recommended install flow
+
+From the project root:
+
+```bash
+uv venv --python 3.12 .venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
+```
+
+If `torch` and `torchaudio` version mismatch causes import/runtime errors, reinstall them as a matching pair:
+
+```bash
+uv pip install --python .venv/bin/python --reinstall torch==2.11.0 torchaudio==2.11.0 torchvision==0.26.0
+```
+
+### System and network prerequisites
+
+- Internet access is needed the first time you load CLIP / CLAP / NLI / Whisper checkpoints
+- If you are in a restricted network environment, use a Hugging Face mirror
+- CPU is supported, but first-time model loading will be slow
+
+### Optional: use Hugging Face mirror
+
+If direct access to `huggingface.co` is unstable, set:
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+export HF_HOME=$PWD/.cache/huggingface
+```
+
+Then pre-download the models used by evaluation:
+
+```bash
+huggingface-cli download openai/whisper-base --local-dir .cache/hf/openai-whisper-base
+huggingface-cli download microsoft/deberta-large-mnli --local-dir .cache/hf/deberta-large-mnli
+huggingface-cli download roberta-base --local-dir .cache/hf/roberta-base
+huggingface-cli download laion/CLIP-ViT-B-32-laion2B-s34B-b79K --local-dir .cache/hf/clip-vit-b32-laion
+```
+
+If you do not have the CLI yet:
+
+```bash
+uv pip install --python .venv/bin/python "huggingface_hub[cli]"
+```
+
+### Verify the evaluation environment
+
+Run these checks before the full evaluation:
+
+```bash
+python -c "import torch, torchaudio; print(torch.__version__, torchaudio.__version__)"
+python -c "from transformers import pipeline; pipeline('automatic-speech-recognition', model='openai/whisper-base'); print('whisper ok')"
+python tools/evaluate.py --help
+```
+
+If the second command fails, `asr_wer` will not be a real score. If `torchaudio` import fails, `clap_audio_score` will not be a real score.
+
 ## Overview
 
 ### Why automated, reference‑free evaluation?
@@ -11,10 +86,36 @@ A comprehensive reference-free evaluation toolkit for MER-Factory outputs. This 
 - **Model‑agnostic**: Works across providers (Gemini, ChatGPT, Ollama, HuggingFace) and pipeline types
 - **Real-time feedback**: Beautiful progress bars and color-coded results for immediate insights
 
+## Model Dependencies
+
+Evaluation is not a zero-download command. The first run may need to pull several Hugging Face checkpoints.
+
+| Metric / Component | Hugging Face model | Why it is needed | Notes |
+|--------------------|--------------------|------------------|-------|
+| `clip_image_score` | `laion/CLIP-ViT-B-32-laion2B-s34B-b79K` | Image-text grounding for peak frames | Loaded through `open_clip_torch` |
+| `clap_audio_score` | `roberta-base` | Text encoder used by `laion-clap` | CLAP also requires a working `torchaudio` runtime |
+| `nli_consistency_score` | `microsoft/deberta-large-mnli` | Entailment / contradiction check across modalities | Used by the NLI scorer |
+| `asr_wer` | `openai/whisper-base` | Whisper baseline for transcript verification | Requires processor / feature extractor files too |
+
+If these checkpoints are not available, evaluation still runs, but some metrics degrade to placeholder values instead of real scores.
+
 ## Quick Start
+
+Do not start with the command alone on a fresh machine. Complete the preflight section first, especially model downloads and `torchaudio` verification.
 
 ### Basic Usage
 ```bash
+python tools/evaluate.py output/ --export-csv output/evaluation_summary.csv
+```
+
+### First-run recommendation
+
+On a fresh machine, use this sequence:
+
+```bash
+source .venv/bin/activate
+export HF_ENDPOINT=https://hf-mirror.com
+export HF_HOME=$PWD/.cache/huggingface
 python tools/evaluate.py output/ --export-csv output/evaluation_summary.csv
 ```
 
@@ -63,7 +164,7 @@ The evaluation system automatically detects and adapts to different pipeline typ
 - **Method**: Cosine similarity via LAION-CLAP (HTSAT-base)
 - **Range**: 0-1 (normalized from -1 to 1)
 - **Interpretation**: Higher scores indicate better audio grounding
-- **Dependencies**: `laion-clap`, `torch`
+- **Dependencies**: `laion-clap`, `torch`, `torchaudio`
 - **Fallback**: Returns 0.0 if dependencies missing or no audio available
 
 #### ASR Word Error Rate (`asr_wer`)
@@ -71,11 +172,43 @@ The evaluation system automatically detects and adapts to different pipeline typ
 - **Method**: WER comparison with Whisper/faster-whisper transcription
 - **Range**: 0-1 (lower is better)
 - **Interpretation**: Lower WER indicates more accurate transcription
-- **Dependencies**: `faster-whisper` (preferred) or `whisper`
+- **Dependencies**: Hugging Face `transformers` pipeline with `openai/whisper-base`
 - **Special Features**: 
   - Chinese language support with character-level tokenization
   - Traditional to Simplified Chinese normalization
   - Intelligent fallback between ASR engines
+
+## What a "real" score requires
+
+The evaluation script degrades gracefully, but that means some numbers may be placeholders if the environment is incomplete.
+
+### `clap_audio_score`
+
+For this metric to be meaningful, all of the following must be true:
+
+- `*.wav` exists for the sample
+- `laion-clap` loads successfully
+- `torchaudio` works correctly
+- the CLAP text/audio embedding path runs without exception
+
+If these fail, the raw CLAP score falls back to `0.0`, and after normalization it may appear as `0.5` in the CSV. A CSV full of `0.5` CLAP values usually means the metric did not really run.
+
+### `asr_wer`
+
+For this metric to be meaningful, all of the following must be true:
+
+- `*.wav` exists for the sample
+- a transcript exists in the analysis output
+- `openai/whisper-base` loads successfully
+
+If Whisper fails to load, `asr_wer` falls back to `0.0`. In that case, `0.0` does **not** mean perfect transcription; it means the metric was unavailable.
+
+### Quick interpretation tip
+
+- `clap_audio_score == 0.5` for nearly every sample: likely fallback, not real CLAP alignment
+- `asr_wer == 0.0` for nearly every sample: likely Whisper unavailable, not perfect ASR
+- `Models initialized: ['clip', 'clap', 'nli']`: Whisper is missing
+- `Models initialized: ['clip', 'clap', 'nli', 'whisper']`: all major metrics are available
 
 ### 😊 AU Alignment Metrics (Facial Expression ↔ Text)
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -12,7 +14,11 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 from rich.panel import Panel
 
-from evaluate import (
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.evaluate import (
     find_samples,
     load_mer_output,
     compute_text_style_metrics,
@@ -24,6 +30,7 @@ from evaluate import (
     aggregate_sample_metrics,
     initialize_models,
 )
+from tools.evaluate.runtime_utils import is_missing_metric, json_ready_metrics
 
 
 app = typer.Typer(add_completion=False, help="Evaluate MER-Factory outputs (reference-free metrics)")
@@ -67,12 +74,18 @@ def _prepare_sample_data(sample):
     transcript = audio_desc.split('\n')[0] if audio_desc else ""
     peak_info = mer.get("overall_peak_frame_info") or {}
     peak_frame_index = peak_info.get("frame_number")
-    peak_frame_au_text = (
-        mer.get("peak_frame_au_description", "")
-        or mer.get("llm_au_description", "")
-        or mer.get("au_text_description", "")
-        or coarse_desc.get("visual_expression", "")
-    )
+    peak_frame_au_text = ""
+    peak_frame_au_text_source = None
+    for source, value in [
+        ("llm_au_description", mer.get("llm_au_description", "")),
+        ("peak_frame_au_description", mer.get("peak_frame_au_description", "")),
+        ("au_text_description", mer.get("au_text_description", "")),
+        ("coarse_visual_expression", coarse_desc.get("visual_expression", "")),
+    ]:
+        if value:
+            peak_frame_au_text = value
+            peak_frame_au_text_source = source
+            break
 
     return {
         'mer': mer,
@@ -84,6 +97,7 @@ def _prepare_sample_data(sample):
         'peak_info': peak_info,
         'peak_frame_index': peak_frame_index,
         'peak_frame_au_text': peak_frame_au_text,
+        'peak_frame_au_text_source': peak_frame_au_text_source,
     }
 
 
@@ -244,6 +258,7 @@ def run(
                 sample_type = data['sample_type']
                 final_summary = data['final_summary']
                 peak_frame_au_text = data['peak_frame_au_text']
+                peak_frame_au_text_source = data['peak_frame_au_text_source']
                 peak_info = data['peak_info']
                 peak_frame_index = data['peak_frame_index']
                 transcript = data['transcript']
@@ -261,29 +276,43 @@ def run(
                     img_path = str(sample.peak_frame_image)
                 if not img_path:
                     reasons["clip_image_score"] = "missing peak frame image"
+                elif not clip_models:
+                    reasons["clip_image_score"] = "CLIP model unavailable"
 
                 if not getattr(sample, "audio_wav", None):
                     reasons["clap_audio_score"] = "missing wav"
                 elif not (transcript or audio_desc):
                     reasons["clap_audio_score"] = "missing transcript/audio_description"
+                elif not clap_model:
+                    reasons["clap_audio_score"] = "CLAP model unavailable"
 
                 if not getattr(sample, "audio_wav", None):
                     reasons["asr_wer"] = "missing wav"
                 elif not transcript:
                     reasons["asr_wer"] = "missing transcript in audio_analysis"
+                elif not whisper_model:
+                    reasons["asr_wer"] = "Whisper model unavailable"
 
                 has_peak_intensities = bool(peak_info.get("top_aus_intensities"))
+                has_reliable_au_text = peak_frame_au_text_source == "llm_au_description"
                 if not getattr(sample, "au_csv", None) and not has_peak_intensities:
                     reasons["au_f1"] = "missing AU CSV or top_aus_intensities"
                 elif peak_frame_index is None and not has_peak_intensities:
                     reasons["au_f1"] = "missing peak frame index"
                 elif not peak_frame_au_text:
                     reasons["au_f1"] = "missing AU text description"
+                elif not has_reliable_au_text:
+                    reasons["au_f1"] = (
+                        f"AU text source '{peak_frame_au_text_source}' is OpenFace-derived and would make the metric circular; "
+                        "rerun MER with the current code to save llm_au_description"
+                    )
 
                 nli_premise = final_summary or video_description or audio_desc or peak_frame_au_text
                 nli_hypotheses = [t for t in [video_description, audio_desc, peak_frame_au_text] if t]
                 if not (nli_premise and nli_hypotheses):
                     reasons["nli"] = "insufficient text for NLI"
+                elif not nli_models:
+                    reasons["nli"] = "NLI model unavailable"
 
                 # Report missing data as warnings if verbose mode is enabled
                 if verbose:
@@ -309,20 +338,25 @@ def run(
                             if key in reasons:
                                 missing.append(f"{key}: {reasons[key]}")
                     if missing:
-                        for msg in missing:
-                            console.print(f"⚠️  [yellow][{sample.sample_id}] missing:[/yellow] {msg}")
+                        console.print(
+                            f"⚠️  [yellow][{sample.sample_id}] metric caveats:[/yellow] "
+                            + "; ".join(missing)
+                        )
 
                 # Text style metrics (cheap, always on)
                 style_m = compute_text_style_metrics(final_summary)
                 metrics.update(style_m)
 
                 # AU alignment metrics (cheap)
-                au_m = compute_au_alignment_metrics(
-                    str(sample.au_csv) if sample.au_csv else None,
-                    peak_frame_index,
-                    peak_frame_au_text,
-                    peak_au_intensities=peak_info.get("top_aus_intensities"),
-                )
+                if "au_f1" in reasons:
+                    au_m = {"au_pr": math.nan, "au_re": math.nan, "au_f1": math.nan}
+                else:
+                    au_m = compute_au_alignment_metrics(
+                        str(sample.au_csv) if sample.au_csv else None,
+                        peak_frame_index,
+                        peak_frame_au_text,
+                        peak_au_intensities=peak_info.get("top_aus_intensities"),
+                    )
                 metrics.update(au_m)
 
                 # Use batched inference results
@@ -332,34 +366,22 @@ def run(
                 metrics["asr_wer"] = asr_wer
 
                 # Normalize CLIP and CLAP scores for consistent 0-1 range in saved metrics
-                if "clip_image_score" in metrics:
+                if "clip_image_score" in metrics and not is_missing_metric(metrics["clip_image_score"]):
                     raw_clip = metrics["clip_image_score"]
                     metrics["clip_image_score"] = max(0.0, (raw_clip + 1.0) / 2.0)
                 
-                if "clap_audio_score" in metrics:
+                if "clap_audio_score" in metrics and not is_missing_metric(metrics["clap_audio_score"]):
                     raw_clap = metrics["clap_audio_score"]
                     metrics["clap_audio_score"] = max(0.0, (raw_clap + 1.0) / 2.0)
 
                 # Composite score
                 metrics["composite_score"] = aggregate_sample_metrics(metrics)
 
-                if verbose:
-                    def _report(name: str, value: float):
-                        if (value == 0.0) and (name in reasons):
-                            console.print(f"ℹ️ [yellow][{sample.sample_id}] {name} -> 0.0 because:[/yellow] {reasons[name]}")
-
-                    _report("clip_image_score", metrics.get("clip_image_score", 0.0))
-                    _report("clap_audio_score", metrics.get("clap_audio_score", 0.0))
-                    _report("asr_wer", metrics.get("asr_wer", 0.0))
-                    _report("au_f1", metrics.get("au_f1", 0.0))
-                    if metrics.get("nli_entail_rate", 0.0) == 0.0 and "nli" in reasons:
-                        console.print(f"ℹ️ [yellow][{sample.sample_id}] nli -> 0.0 because:[/yellow] {reasons['nli']}")
-      
                 # Persist per-sample
                 if write_per_sample:
                     try:
                         with (sample.sample_dir / "evaluation.json").open("w", encoding="utf-8") as f:
-                            json.dump(metrics, f, indent=2)
+                            json.dump(json_ready_metrics(metrics), f, indent=2)
                     except Exception:
                         pass
 
@@ -414,6 +436,9 @@ def run(
             elif col == 'asr_wer':
                 # For WER, lower is better, so color accordingly
                 value = row[col]
+                if is_missing_metric(value):
+                    row_data.append("[dim]N/A[/dim]")
+                    continue
                 if value <= 0.1:
                     row_data.append(f"[green]{value:.3f}[/green]")
                 elif value <= 0.3:
@@ -422,6 +447,9 @@ def run(
                     row_data.append(f"[red]{value:.3f}[/red]")
             elif col in ['clip_image_score', 'clap_audio_score']:
                 value = row[col]
+                if is_missing_metric(value):
+                    row_data.append("[dim]N/A[/dim]")
+                    continue
                 if value >= 0.8:
                     row_data.append(f"[green]{value:.3f}[/green]")
                 elif value >= 0.6:
@@ -431,6 +459,9 @@ def run(
             else:
                 # For other metrics, higher is better
                 value = row[col]
+                if is_missing_metric(value):
+                    row_data.append("[dim]N/A[/dim]")
+                    continue
                 if value >= 0.8:
                     row_data.append(f"[green]{value:.3f}[/green]")
                 elif value >= 0.6:
