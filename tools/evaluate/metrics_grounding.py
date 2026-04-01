@@ -1,23 +1,16 @@
 from __future__ import annotations
 
-import importlib
 import math
-import sys
 from typing import Dict, Optional, List, Tuple
 from PIL import Image
 import torch
 
-from .runtime_utils import suppress_optional_model_noise, load_local_whisper_pipeline
-
-
-def _import_laion_clap():
-    """Import laion_clap without letting it parse this process's CLI arguments."""
-    original_argv = sys.argv[:]
-    try:
-        sys.argv = [original_argv[0]]
-        return importlib.import_module("laion_clap")
-    finally:
-        sys.argv = original_argv
+from .runtime_utils import (
+    suppress_optional_model_noise,
+    load_local_whisper_pipeline,
+    import_laion_clap_safely,
+    load_clap_checkpoint_compat,
+)
 
 
 def _as_float_tensor(value, device):
@@ -167,9 +160,16 @@ def compute_clap_audio_text_score(audio_path, text, clap_model=None):
         try:
             # Use provided model or initialize new one
             if clap_model is None:
+                from huggingface_hub import hf_hub_download
+
+                clap_ckpt = hf_hub_download(
+                    repo_id="lukewys/laion_clap",
+                    filename="630k-audioset-best.pt",
+                )
                 with suppress_optional_model_noise():
-                    laion_clap = _import_laion_clap()
-                    model = laion_clap.CLAP_Module(enable_fusion=False, amodel="HTSAT-base")
+                    laion_clap = import_laion_clap_safely()
+                    model = laion_clap.CLAP_Module(enable_fusion=False, amodel="HTSAT-tiny")
+                    load_clap_checkpoint_compat(model, clap_ckpt)
                 model.eval()
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 model.to(device)
@@ -222,9 +222,16 @@ def compute_clap_audio_text_score(audio_path, text, clap_model=None):
         try:
             # Use provided model or initialize new one
             if clap_model is None:
+                from huggingface_hub import hf_hub_download
+
+                clap_ckpt = hf_hub_download(
+                    repo_id="lukewys/laion_clap",
+                    filename="630k-audioset-best.pt",
+                )
                 with suppress_optional_model_noise():
-                    laion_clap = _import_laion_clap()
-                    model = laion_clap.CLAP_Module(enable_fusion=False, amodel="HTSAT-base")
+                    laion_clap = import_laion_clap_safely()
+                    model = laion_clap.CLAP_Module(enable_fusion=False, amodel="HTSAT-tiny")
+                    load_clap_checkpoint_compat(model, clap_ckpt)
                 model.eval()
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 model.to(device)

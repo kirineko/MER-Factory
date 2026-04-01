@@ -8,9 +8,6 @@ Modules are organized as follows:
 - aggregator: compose per-sample metrics into a composite score
 """
 
-import importlib
-import sys
-
 from .loaders import (
     SampleArtifactPaths,
     find_samples,
@@ -28,21 +25,11 @@ from .aggregator import aggregate_sample_metrics
 from .runtime_utils import (
     suppress_optional_model_noise,
     load_local_whisper_pipeline,
-    enable_offline_hf_mode,
+    force_transformers_offline,
+    import_laion_clap_safely,
+    load_clap_checkpoint_compat,
 )
 import torch
-
-enable_offline_hf_mode()
-
-
-def _import_laion_clap():
-    """Import laion_clap without letting it parse this process's CLI arguments."""
-    original_argv = sys.argv[:]
-    try:
-        sys.argv = [original_argv[0]]
-        return importlib.import_module("laion_clap")
-    finally:
-        sys.argv = original_argv
 
 # Add model initialization helper
 def initialize_models():
@@ -72,9 +59,12 @@ def initialize_models():
     # Initialize CLAP model
     print("Loading CLAP model...")
     try:
-        with suppress_optional_model_noise():
-            laion_clap = _import_laion_clap()
-            model = laion_clap.CLAP_Module(enable_fusion=False, amodel="HTSAT-base")
+        from huggingface_hub import hf_hub_download
+        clap_ckpt = hf_hub_download(repo_id="lukewys/laion_clap", filename="630k-audioset-best.pt")
+        with suppress_optional_model_noise(), force_transformers_offline():
+            laion_clap = import_laion_clap_safely()
+            model = laion_clap.CLAP_Module(enable_fusion=False, amodel="HTSAT-tiny")
+            load_clap_checkpoint_compat(model, clap_ckpt)
         model.eval()
         model.to(device)
         models['clap'] = model
@@ -86,7 +76,7 @@ def initialize_models():
     # Initialize NLI model
     print("Loading NLI model...")
     try:
-        with suppress_optional_model_noise():
+        with suppress_optional_model_noise(), force_transformers_offline():
             from transformers import AutoTokenizer, AutoModelForSequenceClassification
             model_name = "microsoft/deberta-large-mnli"
             tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)

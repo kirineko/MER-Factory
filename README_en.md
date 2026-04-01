@@ -146,6 +146,63 @@ python -m mer_factory.models.hf_api_server --model_id openai/whisper-base --host
 python main.py path_to_video/ output/ --type MER --huggingface-model openai/whisper-base --silent
 ```
 
+### Offline Hugging Face downloads
+
+If you plan to use `--huggingface-model`, or your environment should avoid first-run online downloads, pre-download the required checkpoints into the default Hugging Face cache first.
+
+Install the CLI:
+
+```bash
+uv pip install --python .venv/bin/python "huggingface_hub[cli]"
+```
+
+If needed, configure a mirror first:
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+```
+
+Use `hf download` instead of the old `huggingface-cli download`, and let it download to the default cache location.
+
+The Hugging Face inference models currently registered in MER-Factory are:
+
+- `google/gemma-3n-E4B-it`
+- `google/gemma-3n-E2B-it`
+- `Qwen/Qwen2-Audio-7B-Instruct`
+- `zhifeixie/Audio-Reasoner`
+- `Qwen/Qwen2.5-Omni-7B`
+- `Qwen/Qwen2.5-Omni-3B`
+- `openai/whisper-base`
+- `openai/whisper-small`
+
+Example downloads:
+
+```bash
+hf download google/gemma-3n-E4B-it
+hf download Qwen/Qwen2.5-Omni-7B
+hf download Qwen/Qwen2-Audio-7B-Instruct
+hf download zhifeixie/Audio-Reasoner
+hf download openai/whisper-base
+```
+
+If you also want to run evaluation, pre-download these checkpoints as well:
+
+- `laion/CLIP-ViT-B-32-laion2B-s34B-b79K`
+- `lukewys/laion_clap`
+- `roberta-base`
+- `microsoft/deberta-large-mnli`
+- `openai/whisper-base`
+
+```bash
+hf download laion/CLIP-ViT-B-32-laion2B-s34B-b79K
+hf download lukewys/laion_clap
+hf download roberta-base
+hf download microsoft/deberta-large-mnli
+hf download openai/whisper-base
+```
+
+These commands go to the default Hugging Face cache, typically `~/.cache/huggingface/`, which MER-Factory and the evaluation scripts will reuse automatically.
+
 ### Dashboard for Data Curation and Hyperparameter Tuning
 
 We provide an interactive dashboard webpage to facilitate data curation and hyperparameter tuning. The dashboard allows you to test different prompts, save and run configurations, and rate the generated data.
@@ -276,6 +333,7 @@ Before the first evaluation run, make sure all of the following are true:
 The main model dependencies are:
 
 - `laion/CLIP-ViT-B-32-laion2B-s34B-b79K` for the `CLIP` image score
+- `lukewys/laion_clap` for the main `CLAP` audio checkpoint (`630k-audioset-best.pt`)
 - `roberta-base` as the text encoder dependency used by `LAION-CLAP`
 - `microsoft/deberta-large-mnli` for `NLI` consistency
 - `openai/whisper-base` for `ASR WER`

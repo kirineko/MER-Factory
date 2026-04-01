@@ -197,6 +197,63 @@ HF_API_BASE_URL="http://localhost:7860/"
 - 使用 ChatGPT 时要传 `--chatgpt-model`，并在 `.env` 里设置 `OPENAI_API_KEY`
 - `OPENFACE_EXECUTABLE` 必须是绝对路径
 
+### 6.1 如需离线预下载 Hugging Face 模型
+
+如果你准备使用 `--huggingface-model`，或者你的网络环境不方便在首次运行时在线拉取权重，建议先把需要的模型下载到 Hugging Face 默认缓存目录。这里不要再使用旧的 `huggingface-cli download`，现在统一用 `hf download`，也不需要传 `--local-dir`。
+
+先安装 CLI：
+
+```bash
+uv pip install --python .venv/bin/python "huggingface_hub[cli]"
+```
+
+如果你在受限网络环境，也可以先设置镜像：
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+```
+
+MER-Factory 当前注册的 Hugging Face 推理模型有：
+
+- `google/gemma-3n-E4B-it`
+- `google/gemma-3n-E2B-it`
+- `Qwen/Qwen2-Audio-7B-Instruct`
+- `zhifeixie/Audio-Reasoner`
+- `Qwen/Qwen2.5-Omni-7B`
+- `Qwen/Qwen2.5-Omni-3B`
+- `openai/whisper-base`
+- `openai/whisper-small`
+
+按需预下载示例：
+
+```bash
+hf download google/gemma-3n-E4B-it
+hf download Qwen/Qwen2.5-Omni-7B
+hf download Qwen/Qwen2-Audio-7B-Instruct
+hf download zhifeixie/Audio-Reasoner
+hf download openai/whisper-base
+```
+
+如果你还要跑评估，建议额外把这些评估依赖模型也先下好：
+
+- `laion/CLIP-ViT-B-32-laion2B-s34B-b79K`
+- `lukewys/laion_clap`
+- `roberta-base`
+- `microsoft/deberta-large-mnli`
+- `openai/whisper-base`
+
+对应命令：
+
+```bash
+hf download laion/CLIP-ViT-B-32-laion2B-s34B-b79K
+hf download lukewys/laion_clap
+hf download roberta-base
+hf download microsoft/deberta-large-mnli
+hf download openai/whisper-base
+```
+
+这些命令默认会下载到 Hugging Face 缓存目录，通常是 `~/.cache/huggingface/`。后续 MER-Factory 和评估脚本都会直接复用这里的缓存。
+
 ## 7. 运行安装测试
 
 先用一段真实视频验证 `FFmpeg` 和 `OpenFace` 是否工作正常。下面的命令可以直接替换成你的文件路径：
@@ -341,6 +398,7 @@ python tools/evaluate.py output/ --export-csv output/evaluation_summary.csv
 评估依赖的主要模型包括：
 
 - `laion/CLIP-ViT-B-32-laion2B-s34B-b79K`：用于 `CLIP` 图像分数
+- `lukewys/laion_clap`：用于 `CLAP` 音频主检查点（`630k-audioset-best.pt`）
 - `roberta-base`：`LAION-CLAP` 的文本编码器依赖
 - `microsoft/deberta-large-mnli`：用于 `NLI` 一致性
 - `openai/whisper-base`：用于 `ASR WER`

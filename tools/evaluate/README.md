@@ -47,16 +47,16 @@ If direct access to `huggingface.co` is unstable, set:
 
 ```bash
 export HF_ENDPOINT=https://hf-mirror.com
-export HF_HOME=$PWD/.cache/huggingface
 ```
 
 Then pre-download the models used by evaluation:
 
 ```bash
-huggingface-cli download openai/whisper-base --local-dir .cache/hf/openai-whisper-base
-huggingface-cli download microsoft/deberta-large-mnli --local-dir .cache/hf/deberta-large-mnli
-huggingface-cli download roberta-base --local-dir .cache/hf/roberta-base
-huggingface-cli download laion/CLIP-ViT-B-32-laion2B-s34B-b79K --local-dir .cache/hf/clip-vit-b32-laion
+hf download openai/whisper-base
+hf download microsoft/deberta-large-mnli
+hf download roberta-base
+hf download laion/CLIP-ViT-B-32-laion2B-s34B-b79K
+hf download lukewys/laion_clap
 ```
 
 If you do not have the CLI yet:
@@ -93,6 +93,7 @@ Evaluation is not a zero-download command. The first run may need to pull severa
 | Metric / Component | Hugging Face model | Why it is needed | Notes |
 |--------------------|--------------------|------------------|-------|
 | `clip_image_score` | `laion/CLIP-ViT-B-32-laion2B-s34B-b79K` | Image-text grounding for peak frames | Loaded through `open_clip_torch` |
+| `clap_audio_score` | `lukewys/laion_clap` | CLAP audio checkpoint (`630k-audioset-best.pt`) | Loaded with `hf_hub_download` |
 | `clap_audio_score` | `roberta-base` | Text encoder used by `laion-clap` | CLAP also requires a working `torchaudio` runtime |
 | `nli_consistency_score` | `microsoft/deberta-large-mnli` | Entailment / contradiction check across modalities | Used by the NLI scorer |
 | `asr_wer` | `openai/whisper-base` | Whisper baseline for transcript verification | Requires processor / feature extractor files too |
@@ -115,7 +116,6 @@ On a fresh machine, use this sequence:
 ```bash
 source .venv/bin/activate
 export HF_ENDPOINT=https://hf-mirror.com
-export HF_HOME=$PWD/.cache/huggingface
 python tools/evaluate.py output/ --export-csv output/evaluation_summary.csv
 ```
 

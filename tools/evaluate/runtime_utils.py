@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import io
+import importlib
 import logging
 import math
 import os
+import sys
 import warnings
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 
+
+# All transformers models in this toolkit use local_files_only=True — no network needed.
+# Setting this permanently prevents the safetensors auto-conversion background thread
+# from making network requests and printing spurious errors.
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 QUIET_LOGGERS = [
     "huggingface_hub",
@@ -92,6 +99,20 @@ def enable_offline_hf_mode():
     os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
 
 
+@contextmanager
+def force_transformers_offline():
+    """Temporarily set TRANSFORMERS_OFFLINE=1 to suppress safetensors auto-conversion network requests."""
+    prev = os.environ.get("TRANSFORMERS_OFFLINE")
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    try:
+        yield
+    finally:
+        if prev is None:
+            os.environ.pop("TRANSFORMERS_OFFLINE", None)
+        else:
+            os.environ["TRANSFORMERS_OFFLINE"] = prev
+
+
 def load_local_whisper_pipeline():
     """Build a Whisper ASR pipeline from local cache only."""
     import torch
@@ -101,7 +122,7 @@ def load_local_whisper_pipeline():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     device_arg = 0 if device == "cuda" else -1
 
-    with suppress_optional_model_noise():
+    with suppress_optional_model_noise(), force_transformers_offline():
         processor = AutoProcessor.from_pretrained(model_id, local_files_only=True)
         model = AutoModelForSpeechSeq2Seq.from_pretrained(model_id, local_files_only=True)
         if device == "cuda":
@@ -113,3 +134,53 @@ def load_local_whisper_pipeline():
             feature_extractor=processor.feature_extractor,
             device=device_arg,
         )
+
+
+def import_laion_clap_safely():
+    """Import laion_clap without letting it parse this process's CLI arguments."""
+    original_argv = sys.argv[:]
+    try:
+        sys.argv = [original_argv[0]]
+        return importlib.import_module("laion_clap")
+    finally:
+        sys.argv = original_argv
+
+
+@contextmanager
+def force_torch_load_full_pickle():
+    """
+    Make third-party torch.load calls compatible with PyTorch 2.6+.
+
+    laion_clap still expects the old torch.load default (weights_only=False).
+    """
+    import torch
+
+    original_torch_load = torch.load
+
+    def _compat_torch_load(*args, **kwargs):
+        if "weights_only" not in kwargs:
+            kwargs["weights_only"] = False
+        return original_torch_load(*args, **kwargs)
+
+    torch.load = _compat_torch_load
+    try:
+        yield
+    finally:
+        torch.load = original_torch_load
+
+
+def load_clap_checkpoint_compat(model, checkpoint_path: str):
+    """
+    Load a LAION-CLAP checkpoint with PyTorch 2.6+ compatibility.
+
+    The upstream package does not handle torch.load(weights_only=True) and
+    older checkpoints may include RoBERTa's non-parameter position_ids buffer.
+    """
+    from laion_clap.clap_module.factory import load_state_dict
+
+    with force_torch_load_full_pickle():
+        state_dict = load_state_dict(checkpoint_path, skip_params=True)
+
+    state_dict.pop("text_branch.embeddings.position_ids", None)
+    model.model.load_state_dict(state_dict, strict=False)
+    return model
